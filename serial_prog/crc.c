@@ -27,7 +27,7 @@ uint8_t CRC_Calculate(packet *p) /*should be 0 if crc id correct*/
 	uint8_t crc = 0x00;
 	uint8_t *ptr = (uint8_t*)p;
 	
-	for(uint8_t i= 1; i < 7; i++)
+	for(uint8_t i= 1; i < PACKET_SIZE-1; i++)
 	{
 		crc = _crc8_ccitt_update(crc, *(ptr+i));
 	}

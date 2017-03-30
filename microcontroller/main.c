@@ -9,23 +9,23 @@
 #include <util/setbaud.h>
 #include <util/delay.h>
 
-struct datapacket{
+#define PACKET_SIZE 10
+
+typedef struct datapacket{
 	uint8_t start_byte;
-	uint8_t dev_id;
-	float data; /*4 bytes*/
+	uint8_t message_id;
+	uint8_t sensor_id;
+	uint8_t data_type;
+	union {
+		float data_float; /*4 bytes*/
+		int32_t data_int;
+	};
 	uint8_t crc;
 	uint8_t stop_byte;
-};
-
-union packets{
-	struct datapacket stp;
-	uint8_t arp[8];
-};
-
-typedef union packets packet;
+}packet;
 
 enum{NACK = 0x00, ACK = 0xFF};
-uint8_t response = NACK;
+uint8_t volatile response = NACK;
 
 void ADC_init(void)
 {
@@ -73,9 +73,8 @@ void USART_sendPacket(packet *p)
 	
 	do
 	{
-		for(uint8_t i = 0; i < 8;i++)
+		for(uint8_t i = 0; i < PACKET_SIZE;i++)
 		{
-			//USART_send(testpacket.arp[i]);
 			USART_transmit(*(ptr+i));
 		}
 		_delay_ms(500);
@@ -91,11 +90,11 @@ void CRC_calculate(packet *p)
 {
 	uint8_t crc = 0x00;
 	uint8_t *ptr = (uint8_t*)p;
-	for(uint8_t i= 1; i < 6; i++)
+	for(uint8_t i= 1; i < PACKET_SIZE-2; i++)
 	{
 		crc = _crc8_ccitt_update(crc, *(ptr+i));
 	}
-	p->stp.crc = crc;
+	p->crc = crc;
 }
 
 int main (void)
@@ -105,11 +104,13 @@ int main (void)
 	sei(); //enable interrupts;
 
 	packet testpacket;
-	testpacket.stp.start_byte =0x30;
-	testpacket.stp.dev_id = 0x01;
-	testpacket.stp.data = 1.0100118;
-	testpacket.stp.crc = 0xFF;
-	testpacket.stp.stop_byte = 0x20;
+	testpacket.start_byte =0x30;
+	testpacket.sensor_id = 0x01;
+	testpacket.message_id = 0;
+	testpacket.data_type =0;
+	testpacket.data_float = 1.0100118;
+	testpacket.crc = 0xFF;
+	testpacket.stop_byte = 0x20;
 	
 	//CRC_calculate(&testpacket);
 
@@ -120,7 +121,8 @@ int main (void)
 	while(1)
 	{
 		ADCval = (ADCH*(5/(float)256))*100;
-		testpacket.stp.data = ADCval;
+		testpacket.message_id++;
+		testpacket.data_float = ADCval;
 		CRC_calculate(&testpacket);
 		USART_sendPacket(&testpacket);
 		_delay_ms(10000);
