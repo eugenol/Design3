@@ -62,6 +62,9 @@ int main()
 			if (buf[0]==0x30 && buf[PACKET_SIZE-1] ==0x20 && CRC_Calculate(&p)==0)
 			{
 				RS232_SendByte(cport_nr, ACK); //send ack
+				//over here, check if message_id is the same as the previus message id
+				//if it is, then dont transmit the packet to the server
+				//the microcontroller may not have received the ACK signal.
 				printf("CRC match, ACK sent\n");	
 			}
 			else
