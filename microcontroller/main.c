@@ -27,22 +27,34 @@ typedef struct datapacket{
 enum{NACK = 0x00, ACK = 0xFF};
 uint8_t volatile response = NACK;
 
+/*** prototypes ***/
+int32_t Sensor_ReadHall(void);
+float Sensor_ReadTemp(void);
+
 void ADC_init(void)
 {
-	ADCSRA |= (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0); // Set ADC prescalar to 128 - 125KHz sample rate @ 16MHz
+	ADCSRA |= (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0); // Set ADC prescaler to 128 - 125KHz sample rate @ 16MHz
 
 	ADMUX |= (1 << REFS0); // Set ADC reference to AVCC
-	ADMUX |= (1 << ADLAR); // Left adjust ADC result to allow easy 8 bit reading
+	//ADMUX |= (1 << ADLAR); // Left adjust ADC result to allow easy 8 bit reading
 
 	// No MUX values needed to be changed to use ADC0
 
 	//ADCSRA |= (1 << ADFR);  // Set ADC to Free-Running Mode
-	ADCSRA |= (1 << ADATE);		//NB need this to enable trigger mode
+	//ADCSRA |= (1 << ADATE);		//NB need this to enable trigger mode
 	ADCSRA |= (1 << ADEN);  // Enable ADC
-	ADCSRA |= (1 << ADSC);  // Start A2D Conversions
+	//ADCSRA |= (1 << ADSC);  // Start A2D Conversions
 	
 	//ADCSRB - free running mode
 	_delay_ms(1);
+}
+
+uint16_t ADC_read(uint8_t ADCchannel)
+{
+	ADMUX =(ADMUX & 0xF0) | (ADCchannel & 0x0F); //select ADC channel with safety mask
+	ADCSRA |= (1<<ADSC);	//single conversion mode
+	while(ADCSRA & (1<<ADSC));	//wait for conversion to complete.
+	return ADC;
 }
 
 
@@ -120,11 +132,41 @@ int main (void)
 	
 	while(1)
 	{
+		testpacket.message_id++;
+		testpacket.sensor_id = 0x01;
+		testpacket.data_type = 1;
+		testpacket.data_int = Sensor_ReadHall();
+		CRC_calculate(&testpacket);
+		USART_sendPacket(&testpacket);
+		_delay_ms(500);
+		
+		testpacket.message_id++;
+		testpacket.sensor_id = 0x02;
+		testpacket.data_type = 0;
+		testpacket.data_float = Sensor_ReadTemp();
+		CRC_calculate(&testpacket);
+		USART_sendPacket(&testpacket);
+		_delay_ms(500);
+		
+	}
+}
+
+float Sensor_ReadTemp(void) {
+	float temp = ADC_read(1);
+	
+	return (temp*5/((float)1024)*100);
+}
+
+int32_t Sensor_ReadHall(void) {
+	return ADC_read(0);
+}
+
+
+/*
 		ADCval = (ADCH*(5/(float)256))*100;
 		testpacket.message_id++;
 		testpacket.data_float = ADCval;
 		CRC_calculate(&testpacket);
 		USART_sendPacket(&testpacket);
 		_delay_ms(10000);
-	}
-}
+*/
