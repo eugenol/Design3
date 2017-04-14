@@ -30,6 +30,11 @@ uint8_t volatile response = NACK;
 /*** prototypes ***/
 int32_t Sensor_ReadHall(void);
 float Sensor_ReadTemp(void);
+int32_t Sensor_ReadLevel(uint8_t idx);
+
+void IO_init(void) {
+	DDRD = 0x70; //set pins 4,5,6 on port D as output;
+}
 
 void ADC_init(void)
 {
@@ -113,6 +118,7 @@ int main (void)
 {
 	USART_init();
 	ADC_init();
+	IO_init();
 	sei(); //enable interrupts;
 
 	packet testpacket;
@@ -132,18 +138,50 @@ int main (void)
 	
 	while(1)
 	{
-		testpacket.message_id++;
+		/*testpacket.message_id++;
 		testpacket.sensor_id = 0x01;
 		testpacket.data_type = 1;
 		testpacket.data_int = Sensor_ReadHall();
+		CRC_calculate(&testpacket);
+		USART_sendPacket(&testpacket);
+		_delay_ms(500);*/
+		
+		testpacket.message_id++;
+		testpacket.sensor_id = 0x00;
+		testpacket.data_type = 1;
+		testpacket.data_int = Sensor_ReadLevel(0);
+		CRC_calculate(&testpacket);
+		USART_sendPacket(&testpacket);
+		_delay_ms(500);
+		
+		testpacket.message_id++;
+		testpacket.sensor_id = 0x01;
+		testpacket.data_type = 1;
+		testpacket.data_int = Sensor_ReadLevel(1);
 		CRC_calculate(&testpacket);
 		USART_sendPacket(&testpacket);
 		_delay_ms(500);
 		
 		testpacket.message_id++;
 		testpacket.sensor_id = 0x02;
-		testpacket.data_type = 0;
-		testpacket.data_float = Sensor_ReadTemp();
+		testpacket.data_type = 1;
+		testpacket.data_int = Sensor_ReadLevel(2);
+		CRC_calculate(&testpacket);
+		USART_sendPacket(&testpacket);
+		_delay_ms(500);
+		
+		testpacket.message_id++;
+		testpacket.sensor_id = 0x03;
+		testpacket.data_type = 1;
+		testpacket.data_int = Sensor_ReadLevel(3);
+		CRC_calculate(&testpacket);
+		USART_sendPacket(&testpacket);
+		_delay_ms(500);
+		
+		testpacket.message_id++;
+		testpacket.sensor_id = 0x04;
+		testpacket.data_type = 1;
+		testpacket.data_int = Sensor_ReadLevel(4);
 		CRC_calculate(&testpacket);
 		USART_sendPacket(&testpacket);
 		_delay_ms(500);
@@ -159,6 +197,31 @@ float Sensor_ReadTemp(void) {
 
 int32_t Sensor_ReadHall(void) {
 	return ADC_read(0);
+}
+
+int32_t Sensor_ReadLevel(uint8_t idx) {
+	
+	int32_t offset = 512;
+	
+	switch (idx) {
+		case 0: PORTD = 0b00000000;
+				offset = 523;
+				break;
+		case 1: PORTD = 0b00010000;
+				offset = 527;
+				break;
+		case 2: PORTD = 0b00100000;
+				offset = 522;
+				break;
+		case 3: PORTD = 0b00110000;
+				offset = 526;
+				break;	
+		case 4: PORTD = 0b01000000;
+				offset = 527;
+				break;	
+	}				
+
+	return ((int32_t)ADC_read(1)-offset);
 }
 
 
