@@ -2,6 +2,7 @@
 #include <avr/interrupt.h>
 #include <stdint.h>
 #include <util/crc16.h>
+#include <math.h>
  
 #define F_CPU 16000000UL
 #define BAUD 9600
@@ -18,19 +19,43 @@ typedef struct datapacket{
 	uint8_t data_type;
 	union {
 		float data_float; /*4 bytes*/
-		int32_t data_int;
+		int32_t data_int; /*4 bytes*/
 	};
 	uint8_t crc;
 	uint8_t stop_byte;
 }packet;
 
+uint8_t ack_check[256] = {0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 
+							4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4,
+							4, 5, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3,
+							4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 
+							4, 5, 5, 6, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 
+							4, 3, 4, 4, 5, 2, 3, 3, 4, 3, 4, 4, 5, 3, 4, 
+							4, 5, 4, 5, 5, 6, 2, 3, 3, 4, 3, 4, 4, 5, 3, 
+							4, 4, 5, 4, 5, 5, 6, 3, 4, 4, 5, 4, 5, 5, 6, 
+							4, 5, 5, 6, 5, 6, 6, 7, 0, 1, 1, 2, 1, 2, 2, 
+							3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 
+							3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 1, 2, 2, 3, 2, 
+							3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 3, 4, 
+							3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 1, 2, 2, 
+							3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 2, 3, 
+							3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 2, 
+							3, 3, 4, 3, 4, 4, 5, 3, 4, 4, 5, 4, 5, 5, 6, 
+							3, 4, 4, 5, 4, 5, 5, 6, 4, 5, 5, 6, 5, 6, 6, 7};
+
 enum{NACK = 0x00, ACK = 0xFF};
 uint8_t volatile response = NACK;
 
 /*** prototypes ***/
-int32_t Sensor_ReadHall(void);
+void SPI_init(void);
+uint8_t SPI_tranceive(uint8_t data);
+
+// Sensor Prototypes
+int32_t Sensor_ReadBundTap(void);
+int32_t Sensor_ReadFlame(void);
 float Sensor_ReadTemp(void);
-int32_t Sensor_ReadLevel(uint8_t idx);
+int32_t Sensor_ReadBundLevel(void);
+int32_t Sensor_ReadBundLevel_Test(uint8_t s);
 
 void IO_init(void) {
 	DDRD = 0x70; //set pins 4,5,6 on port D as output;
@@ -100,7 +125,8 @@ void USART_sendPacket(packet *p)
 
 ISR(USART_RX_vect)
 {
-	response = UDR0;
+	uint8_t temp = UDR0;
+	response = ack_check[temp] > 3? ACK : NACK;
 }
 
 void CRC_calculate(packet *p)
@@ -119,6 +145,7 @@ int main (void)
 	USART_init();
 	ADC_init();
 	IO_init();
+	SPI_init();
 	sei(); //enable interrupts;
 
 	packet testpacket;
@@ -126,110 +153,159 @@ int main (void)
 	testpacket.sensor_id = 0x01;
 	testpacket.message_id = 0;
 	testpacket.data_type =0;
-	testpacket.data_float = 1.0100118;
-	testpacket.crc = 0xFF;
+	testpacket.data_float = 0;
+	testpacket.crc = 0;
 	testpacket.stop_byte = 0x20;
 	
-	//CRC_calculate(&testpacket);
-
-	//USART_sendPacket(&testpacket);
-	
-	float ADCval;
+	_delay_ms(2000); 
 	
 	while(1)
 	{
-		/*testpacket.message_id++;
-		testpacket.sensor_id = 0x01;
-		testpacket.data_type = 1;
-		testpacket.data_int = Sensor_ReadHall();
-		CRC_calculate(&testpacket);
-		USART_sendPacket(&testpacket);
-		_delay_ms(500);*/
-		
+		// Temperature Sensor
 		testpacket.message_id++;
 		testpacket.sensor_id = 0x00;
-		testpacket.data_type = 1;
-		testpacket.data_int = Sensor_ReadLevel(0);
+		testpacket.data_type = 0;
+		testpacket.data_float = Sensor_ReadTemp();
 		CRC_calculate(&testpacket);
 		USART_sendPacket(&testpacket);
 		_delay_ms(500);
 		
+		// Flame Sensor
 		testpacket.message_id++;
 		testpacket.sensor_id = 0x01;
 		testpacket.data_type = 1;
-		testpacket.data_int = Sensor_ReadLevel(1);
+		testpacket.data_int = Sensor_ReadFlame();
 		CRC_calculate(&testpacket);
 		USART_sendPacket(&testpacket);
 		_delay_ms(500);
 		
+		// Tap sensor
 		testpacket.message_id++;
 		testpacket.sensor_id = 0x02;
 		testpacket.data_type = 1;
-		testpacket.data_int = Sensor_ReadLevel(2);
+		testpacket.data_int = Sensor_ReadBundTap();
 		CRC_calculate(&testpacket);
 		USART_sendPacket(&testpacket);
 		_delay_ms(500);
 		
+		// Level Sensor
 		testpacket.message_id++;
 		testpacket.sensor_id = 0x03;
 		testpacket.data_type = 1;
-		testpacket.data_int = Sensor_ReadLevel(3);
+		testpacket.data_int = Sensor_ReadBundLevel();
+		CRC_calculate(&testpacket);
+		USART_sendPacket(&testpacket);
+		_delay_ms(1000);
+		/*
+		testpacket.message_id++;
+		testpacket.sensor_id = 0x30;
+		testpacket.data_type = 1;
+		testpacket.data_int = Sensor_ReadBundLevel_Test(0x00);
 		CRC_calculate(&testpacket);
 		USART_sendPacket(&testpacket);
 		_delay_ms(500);
 		
 		testpacket.message_id++;
-		testpacket.sensor_id = 0x04;
+		testpacket.sensor_id = 0x31;
 		testpacket.data_type = 1;
-		testpacket.data_int = Sensor_ReadLevel(4);
+		testpacket.data_int = Sensor_ReadBundLevel_Test(0x01);
 		CRC_calculate(&testpacket);
 		USART_sendPacket(&testpacket);
 		_delay_ms(500);
 		
+		testpacket.message_id++;
+		testpacket.sensor_id = 0x32;
+		testpacket.data_type = 1;
+		testpacket.data_int = Sensor_ReadBundLevel_Test(0x02);
+		CRC_calculate(&testpacket);
+		USART_sendPacket(&testpacket);
+		_delay_ms(500);
+		
+		testpacket.message_id++;
+		testpacket.sensor_id = 0x33;
+		testpacket.data_type = 1;
+		testpacket.data_int = Sensor_ReadBundLevel_Test(0x03);
+		CRC_calculate(&testpacket);
+		USART_sendPacket(&testpacket);
+		_delay_ms(500);
+		
+		testpacket.message_id++;
+		testpacket.sensor_id = 0x34;
+		testpacket.data_type = 1;
+		testpacket.data_int = Sensor_ReadBundLevel_Test(0x04);
+		CRC_calculate(&testpacket);
+		USART_sendPacket(&testpacket);
+		_delay_ms(500);*/
 	}
 }
 
+int32_t Sensor_ReadFlame(void) {
+	uint16_t res = ADC_read(1);
+	if (res > 400)
+		return 0;
+	else //if (res >= 500 )
+		return 1;
+}
+
 float Sensor_ReadTemp(void) {
-	float temp = ADC_read(1);
+	/* R0 = 9740 ohms
+	 * B = 3435
+	 * T0 = 298.15 K
+	 * r = R0*(ADC_MAX/ADC_VAL -1)
+	 * T = B/ln(r/R1)
+	 * R1 = R0*e^(-B/T0)
+	 */
+	 
+	float temp = ADC_read(2);
 	
-	return (temp*5/((float)1024)*100);
+	temp = 9740*(1023.0/temp -1);
+	temp /= 0.0919;
+	temp = log(temp);
+	temp = 3435/temp;
+	
+	return (temp - 273.15);
 }
 
-int32_t Sensor_ReadHall(void) {
-	return ADC_read(0);
+int32_t Sensor_ReadBundTap(void) {
+	uint16_t res = ADC_read(0);
+	if (res >= 610)
+		return 0;
+	else
+		return 1;
 }
 
-int32_t Sensor_ReadLevel(uint8_t idx) {
-	
-	int32_t offset = 512;
-	
-	switch (idx) {
-		case 0: PORTD = 0b00000000;
-				offset = 523;
-				break;
-		case 1: PORTD = 0b00010000;
-				offset = 527;
-				break;
-		case 2: PORTD = 0b00100000;
-				offset = 522;
-				break;
-		case 3: PORTD = 0b00110000;
-				offset = 526;
-				break;	
-		case 4: PORTD = 0b01000000;
-				offset = 527;
-				break;	
-	}				
-
-	return ((int32_t)ADC_read(1)-offset);
+int32_t Sensor_ReadBundLevel(void) {
+	PORTB &= ~(1<<2);		
+	uint8_t ret = SPI_tranceive(0x00);
+	if (ret==255)
+		return -1;
+	else
+		return ret;
 }
 
+int32_t Sensor_ReadBundLevel_Test(uint8_t s) {
+	PORTB &= ~(1<<2);		
+	uint8_t ret = SPI_tranceive(s);
+	return ret;
+}
 
-/*
-		ADCval = (ADCH*(5/(float)256))*100;
-		testpacket.message_id++;
-		testpacket.data_float = ADCval;
-		CRC_calculate(&testpacket);
-		USART_sendPacket(&testpacket);
-		_delay_ms(10000);
-*/
+void SPI_init(void) {
+	//DDRB=(1<<3)|(1<<5)|(1<<2); //set MOSI and SCK and SS as ouput.
+	//SPCR=(1<<SPE)|(1<<MSTR)|(1<<SPR0);//|(1<<SPIE); // Enable SPI, set as master. Prescaler = Fosc/16
+	//PORTB &= ~(1<<PB2);
+	
+	DDRB |= (1<<2)|(1<<3)|(1<<5);    // SCK, MOSI and SS as outputs
+    DDRB &= ~(1<<4);                 // MISO as input
+
+    SPCR |= (1<<MSTR);               // Set as Master
+    //SPCR |= (1<<SPR0)|(1<<SPR1);     // divided clock by 128
+    SPCR |= (1<<SPR0);//|(1<<SPR1);
+    //SPCR |= (1<<SPIE);               // Enable SPI Interrupt    
+    SPCR |= (1<<SPE);                // Enable SPI	
+}
+
+uint8_t SPI_tranceive(uint8_t data) {
+	SPDR = data; //load data into buffer
+	while(!(SPSR & (1<<SPIF))); //wait for transmission to complete
+	return(SPDR); //return received data
+}
